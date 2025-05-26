@@ -1,149 +1,98 @@
-import pygame
 import chess
-import os
-import random
+import chess.engine
+import pygame
+from Minimax import find_best_move # Importa la función principal del algoritmo Minimax
+from Heuristic import CHECKMATE_SCORE # Importa la constante de puntuación de jaque mate
+from ChessGUI import ChessGUI # Importa la clase de la interfaz gráfica de usuario
 
-# Configuración inicial
-WIDTH, HEIGHT = 512, 512
-DIMENSION = 8  # 8x8 tablero
-SQ_SIZE = HEIGHT // DIMENSION
-MAX_FPS = 15
-
-IMAGES = {}
-
-def generate_images():
-    if not os.path.exists("images"):
-        os.makedirs("images")
-
-    files_colors_letters = [
-        ("images/wk.png", (200, 200, 200), "K"),  # Rey blanco
-        ("images/wr.png", (150, 150, 150), "R"),  # Torre blanca
-        ("images/bk.png", (50, 50, 50), "K"),     # Rey negro
-    ]
-
-    for path, color, letter in files_colors_letters:
-        if not os.path.isfile(path):
-            surf = pygame.Surface((SQ_SIZE, SQ_SIZE))
-            surf.fill(pygame.Color("white"))
-            pygame.draw.rect(surf, color, (10, 10, SQ_SIZE - 20, SQ_SIZE - 20))
-            font = pygame.font.SysFont("Arial", 36, bold=True)
-            text = font.render(letter, True, pygame.Color("black" if color != (50, 50, 50) else "white"))
-            text_rect = text.get_rect(center=(SQ_SIZE//2, SQ_SIZE//2))
-            surf.blit(text, text_rect)
-            pygame.image.save(surf, path)
-
-def load_images():
-    pieces = ['wk', 'wr', 'bk']
-    for piece in pieces:
-        IMAGES[piece] = pygame.transform.scale(
-            pygame.image.load(os.path.join("images", piece + ".png")),
-            (SQ_SIZE, SQ_SIZE)
-        )
-
-def draw_board(screen):
-    colors = [pygame.Color("white"), pygame.Color("gray")]
-    for row in range(DIMENSION):
-        for col in range(DIMENSION):
-            color = colors[(row + col) % 2]
-            pygame.draw.rect(screen, color, pygame.Rect(col*SQ_SIZE, row*SQ_SIZE, SQ_SIZE, SQ_SIZE))
-
-def draw_pieces(screen, board):
-    for square in chess.SQUARES:
-        piece = board.piece_at(square)
-        if piece:
-            row = 7 - (square // 8)
-            col = square % 8
-            color = 'w' if piece.color == chess.WHITE else 'b'
-            name = piece.symbol().lower()
-            key = color + name
-            if key in IMAGES:
-                screen.blit(IMAGES[key], pygame.Rect(col*SQ_SIZE, row*SQ_SIZE, SQ_SIZE, SQ_SIZE))
-
-def get_square_under_mouse():
-    mouse_pos = pygame.Vector2(pygame.mouse.get_pos())
-    x, y = [int(v // SQ_SIZE) for v in mouse_pos]
-    if 0 <= x < DIMENSION and 0 <= y < DIMENSION:
-        return chess.square(x, 7 - y)
-    return None
-
-def show_message(screen, white_won):
-    pass
-
-
-def generate_random_position():
-    # Genera posiciones aleatorias para rey blanco, 2 torres blancas y rey negro sin superposiciones y legales
-    squares = list(range(64))
-    random.shuffle(squares)
-
-    # El rey blanco no debe estar en jaque al inicio, ni las torres sobre el rey blanco
-    # Solo aseguramos que no se superpongan para simplificar
-    positions = {}
-
-    # Colocar rey blanco
-    king_white = squares.pop()
-    positions['wk'] = king_white
-
-    # Colocar 2 torres blancas
-    rooks = []
-    for _ in range(2):
-        while True:
-            sq = squares.pop()
-            if sq != king_white:
-                rooks.append(sq)
-                break
-    positions['wr1'] = rooks[0]
-    positions['wr2'] = rooks[1]
-
-    # Colocar rey negro (falta)
-
-def create_board_from_positions(pos):
-    pass
-
+# --- Bucle Principal del Juego (Main Game Loop) ---
 def main():
-    pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Rey y Dos Torres vs Rey")
-    clock = pygame.time.Clock()
+    # Inicializa la interfaz gráfica de usuario
+    # Esto también configura la ventana de Pygame.
+    gui = ChessGUI() 
 
-    generate_images()
-    load_images()
+    print("Starting setup phase...") # Mensaje para la consola indicando el inicio de la fase de configuración
 
-    positions = generate_random_position()
-    board = create_board_from_positions(positions)
+    # Ejecuta la fase de configuración visual, donde el usuario coloca las piezas.
+    # El método run_setup_phase() en ChessGUI devuelve el objeto Board ya configurado.
+    board = gui.run_setup_phase() 
+    print("Setup complete! Starting game.") # Mensaje para la consola indicando que la configuración ha terminado
 
-    selected_square = None
-    player_turn = True  # True = blanco (usuario), False = negro (computadora)
+    # Define la profundidad máxima para el algoritmo Minimax.
+    # Un valor más alto hace que la IA sea más 'inteligente' pero también más lenta.
+    MAX_DEPTH = 4 # Ajusta este valor para controlar la fuerza de la IA
 
-    running = True
+    running = True # Variable de control para mantener el bucle del juego activo
     while running:
+        # Actualiza y dibuja la interfaz gráfica del tablero en cada iteración del bucle.
+        gui.update_display() 
+        
+        # --- Comprobación de Fin de Juego ---
+        # Verifica si el juego ha terminado (jaque mate, ahogado, etc.).
+        if board.is_game_over():
+            # Si es jaque mate
+            if board.is_checkmate():
+                # Si es el turno de BLANCAS, significa que NEGRAS ha sido jaque mate por BLANCAS
+                if board.turn == chess.WHITE:
+                    gui.show_game_over_screen("Black is checkmated! White wins!") # Muestra mensaje de victoria de Blancas
+                # Si es el turno de NEGRAS, significa que BLANCAS ha sido jaque mate por NEGRAS
+                else:
+                    gui.show_game_over_screen("White is checkmated! Black wins!") # Muestra mensaje de victoria de Negras
+            # Si es ahogado (stalemate)
+            elif board.is_stalemate():
+                gui.show_game_over_screen("It's a stalemate!") # Muestra mensaje de ahogado
+            # Otros casos de fin de juego (material insuficiente, repetición, etc.)
+            else:
+                gui.show_game_over_screen("Game Over!") # Muestra mensaje genérico de fin de juego
+            
+            running = False # Detiene el bucle principal del juego
+            break # Sale del bucle
+
+        # --- Turno de Blancas (IA) ---
+        # Si es el turno de las piezas blancas
+        if board.turn == chess.WHITE:
+            print("White's turn (AI thinking)...") # Mensaje en consola indicando que la IA está pensando
+
+            # Encuentra el mejor movimiento para BLANCAS usando el algoritmo Minimax.
+            # El MAX_DEPTH determina qué tan 'profundo' busca la IA.
+            best_move = find_best_move(board, MAX_DEPTH)
+            
+            # Si la IA encuentra un movimiento legal
+            if best_move:
+                board.push(best_move) # Realiza el movimiento en el tablero
+                print(f"White (AI) plays: {best_move.uci()}") # Muestra el movimiento de la IA en formato UCI
+            # Si la IA no tiene movimientos legales (debería ser un ahogado o jaque mate ya manejado)
+            else:
+                print("White (AI) has no legal moves. Game over (stalemate/no moves).")
+                running = False # Detiene el juego
+        # --- Turno de Negras (Usuario) ---
+        # Si es el turno de las piezas negras (el usuario)
+        else: 
+            print("Black's turn (Your turn). Click and drag pieces on the board.") # Instrucciones para el usuario
+            
+            # Obtiene el movimiento del usuario a través de la interfaz gráfica.
+            # Este método espera hasta que el usuario realice un movimiento válido.
+            user_move = gui.get_user_move()
+            
+            # Si el usuario realizó un movimiento válido
+            if user_move:
+                board.push(user_move) # Realiza el movimiento en el tablero
+                print(f"Black (You) plays: {user_move.uci()}") # Muestra el movimiento del usuario en formato UCI
+            # Si el usuario cierra la ventana durante su turno
+            else: 
+                running = False # Detiene el juego
+
+        # --- Manejo de Eventos de Pygame (para salir del juego) ---
+        # Itera sobre los eventos de Pygame para permitir al usuario cerrar la ventana en cualquier momento.
         for event in pygame.event.get():
+            # Si el usuario cierra la ventana (hace clic en la 'X')
             if event.type == pygame.QUIT:
-                running = False
+                running = False # Detiene el bucle principal del juego
+                break # Sale del bucle for, y el bucle while también terminará
 
-            elif event.type == pygame.MOUSEBUTTONDOWN and player_turn:
-                sq = get_square_under_mouse()
-                if sq is not None:
-                    piece = board.piece_at(sq)
-                    if selected_square is None:
-                        if piece and piece.color == chess.WHITE:
-                            selected_square = sq
-                    else:
-                        move = chess.Move(selected_square, sq)
-                        if move in board.legal_moves:
-                            board.push(move)
-                            selected_square = None
-                            player_turn = False
-                        else:
-                            selected_square = None
+    pygame.quit() # Cierra y desinicializa Pygame
+    print("\n--- Game Exited ---") # Mensaje final al salir del juego
 
-        # Turno computadora: Rey negro mueve aleatoriamente (falta)
-
-        # Detectar fin de juego y mostrar mensaje (falta)
-        pygame.display.flip()
-        clock.tick(MAX_FPS)
-
-
-    pygame.quit()
-
+# Punto de entrada principal del programa
 if __name__ == "__main__":
     main()
